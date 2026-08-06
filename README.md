@@ -1,6 +1,101 @@
 # llama.cpp
 
-![llama](https://raw.githubusercontent.com/ggml-org/llama.brand/refs/heads/master/cover/llama-cpp/cover-llama-cpp-dark.svg)
+## Maple Preview — CPU Setup
+
+### Build llama.cpp
+
+On Debian/Ubuntu ARM, install GCC/G++ if needed:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential
+```
+
+```bash
+git clone git@github.com:deepgrove-ai/llama.cpp.git
+cd llama.cpp
+
+rm -rf ./build
+
+uvx cmake -B build \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DGGML_METAL=OFF
+
+uvx cmake --build build -j
+```
+
+macOS uses Apple Clang. `uvx` provides CMake, so no separate CMake installation is needed.
+
+### Download the GGUF
+
+```bash
+uvx --from huggingface_hub hf download \
+  deepgrove/maple-preview-GGUF \
+  maple-preview-TQ2_0-head-Q4_K.gguf \
+  --local-dir models
+```
+
+Hugging Face: [`deepgrove/maple-preview-GGUF`](https://huggingface.co/deepgrove/maple-preview-GGUF/tree/main)
+
+| Variant | GGUF size |
+| --- | ---: |
+| [TQ1_0 + Q4_K head](https://huggingface.co/deepgrove/maple-preview-GGUF/blob/main/maple-preview-TQ1_0-head-Q4_K.gguf) | 4.64 GiB |
+| [TQ1_0 + FP16 head](https://huggingface.co/deepgrove/maple-preview-GGUF/blob/main/maple-preview-TQ1_0-head-F16.gguf) | 5.06 GiB |
+| [TQ2_0 + Q4_K head](https://huggingface.co/deepgrove/maple-preview-GGUF/blob/main/maple-preview-TQ2_0-head-Q4_K.gguf) | 5.50 GiB |
+| [TQ2_0 + FP16 head](https://huggingface.co/deepgrove/maple-preview-GGUF/blob/main/maple-preview-TQ2_0-head-F16.gguf) | 5.91 GiB |
+
+### Start chatting
+
+```bash
+./build/bin/llama-completion \
+  -m models/maple-preview-TQ2_0-head-Q4_K.gguf \
+  --threads 16 \
+  --temp 1.0 \
+  --top-p 0.95 \
+  --jinja \
+  --conversation
+```
+
+`--jinja` applies Maple's embedded chat template exactly, including its thinking prefix.
+
+### Benchmark
+
+M5 Pro, CPU-only, 16 threads, 512 prompt tokens, 128 generated tokens, 3 repetitions:
+
+| Matrix weights | LM head | GGUF size | Prefill (pp512) | Decode (tg128) |
+| --- | --- | ---: | ---: | ---: |
+| TQ1_0 | FP16 | 5.06 GiB | 515.41 ± 0.28 tokens/s | 161.06 ± 0.57 tokens/s |
+| TQ1_0 | Q4_K | 4.64 GiB | 513.33 ± 3.62 tokens/s | 231.13 ± 0.13 tokens/s |
+| TQ2_0 | FP16 | 5.91 GiB | 618.57 ± 2.12 tokens/s | 169.81 ± 2.94 tokens/s |
+| TQ2_0 | Q4_K | 5.50 GiB | 610.48 ± 3.76 tokens/s | 252.74 ± 0.37 tokens/s |
+
+Adjust `-t` for #of threads.
+
+FP16 LM head:
+
+```bash
+./build/bin/llama-bench \
+  -m models/maple-preview-TQ2_0-head-F16.gguf \
+  -p 512 \
+  -n 128 \
+  -r 3 \
+  -t 16 \
+  -dev none \
+  -ngl 0
+```
+
+Q4_K LM head:
+
+```bash
+./build/bin/llama-bench \
+  -m models/maple-preview-TQ2_0-head-Q4_K.gguf \
+  -p 512 \
+  -n 128 \
+  -r 3 \
+  -t 16 \
+  -dev none \
+  -ngl 0
+```
 
 <div align="center">
 
