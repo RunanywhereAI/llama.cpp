@@ -44,6 +44,8 @@ Hugging Face: [`deepgrove/maple-preview-GGUF`](https://huggingface.co/deepgrove/
 | [TQ2_0 + Q4_K head](https://huggingface.co/deepgrove/maple-preview-GGUF/blob/main/maple-preview-TQ2_0-head-Q4_K.gguf) | 5.50 GiB |
 | [TQ2_0 + FP16 head](https://huggingface.co/deepgrove/maple-preview-GGUF/blob/main/maple-preview-TQ2_0-head-F16.gguf) | 5.91 GiB |
 
+TQ1_0 and TQ2_0 are different ternary packing schemes. Use TQ2_0 for generally faster speeds but slightly higher memory footprint.
+
 ### Start chatting
 
 ```bash
