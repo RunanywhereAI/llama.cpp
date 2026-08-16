@@ -859,9 +859,12 @@ ggml_metal_device_t ggml_metal_device_init(int device) {
                 }
             }
 
-            dev->props.use_residency_sets = true;
+            dev->props.use_residency_sets = false;
 #if defined(GGML_METAL_HAS_RESIDENCY_SETS)
-            dev->props.use_residency_sets = getenv("GGML_METAL_NO_RESIDENCY") == nil;
+            if ([dev->mtl_device supportsFamily:MTLGPUFamilyApple6]) {
+                dev->props.use_residency_sets = getenv("GGML_METAL_NO_RESIDENCY") == nil;
+            }
+            // Apple5 (A12) and older GPUs do not support residency sets.
 #endif
 
             dev->props.use_shared_buffers = dev->props.has_unified_memory;
