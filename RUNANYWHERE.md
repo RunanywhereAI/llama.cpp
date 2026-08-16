@@ -8,6 +8,9 @@ from `deepgrove-ai/llama.cpp`; it does not wholesale-track that fork.
 
 - CPU: Maple Preview, PrismML Bonsai `Q1_0`, and canonical `Q2_0` are supported.
 - Metal: Bonsai `Q1_0` and canonical `Q2_0` are supported.
+- Apple residency sets are enabled only on Apple GPU family 6 and newer; this
+  preserves iOS 18 compatibility on A12/Apple5 devices that expose the API but
+  cannot create a residency set.
 - Maple must use CPU execution. Its expert path requires a ternary
   `mul_mm_id` Metal pipeline that the current DeepGrove patch does not provide.
 - Prism's older `Q2_0` artifacts used a non-canonical 128-value block under the
@@ -18,8 +21,8 @@ from `deepgrove-ai/llama.cpp`; it does not wholesale-track that fork.
 ## Rebase and release checklist
 
 1. Rebase the integration branch onto a pinned canonical llama.cpp revision.
-2. Re-apply the two small Maple commits and resolve only their architecture
-   registration/model graph surface.
+2. Re-apply the small Maple architecture/model-graph delta and the Apple GPU
+   residency capability guard.
 3. Build `llama-cli` on macOS with Metal and on Linux with the CPU backend.
 4. Run real inference with the pinned Maple Preview, Bonsai `Q1_0`, and Prism
    `Q2_0_g64` GGUF fixtures recorded in the RunAnywhere SDK runtime plan.
