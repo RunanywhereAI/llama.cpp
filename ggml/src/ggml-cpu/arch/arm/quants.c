@@ -253,9 +253,9 @@ void ggml_vec_dot_q2_0_q8_0(int n, float * GGML_RESTRICT s, size_t bs, const voi
     for (int i = 0; i < nb; i++) {
         const float d0 = GGML_CPU_FP16_TO_FP32(x[i].d);
 
-        // Prism Q2_0 uses one 128-weight block mapped to four Q8_0 blocks.
-        for (int k = 0; k < 4; k++) {
-            const block_q8_0 * GGML_RESTRICT yb = &y[i * 4 + k];
+        // group 64: one Q2_0 block (64 weights) maps to two Q8_0 blocks (2 * 32 = 64)
+        for (int k = 0; k < 2; k++) {
+            const block_q8_0 * GGML_RESTRICT yb = &y[i * 2 + k];
             const float d1 = GGML_CPU_FP16_TO_FP32(yb->d);
 
             // Load 8 bytes of packed 2-bit values
@@ -4316,3 +4316,4 @@ void ggml_vec_dot_iq4_xs_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const v
     ggml_vec_dot_iq4_xs_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
 #endif
 }
+
