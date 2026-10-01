@@ -66,6 +66,9 @@ struct llama_ubatch {
 
     // the llama_ubatch pointers above point to this data if set. otherwise - point to external non-owning data
     std::shared_ptr<data_t> data;
+
+    // [n_tokens], see llama_batch_ext_set_decision_order(), NULL if no entry has one
+    int32_t * decision_order = nullptr;
 };
 
 // a helper for sanitizing, fulfilling and splitting a batch
