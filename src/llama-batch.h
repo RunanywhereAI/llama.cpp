@@ -51,6 +51,9 @@ struct llama_ubatch {
     int32_t      *  seq_idx;    // [LLAMA_MAX_SEQ]    | -   | seq_idx
     int8_t       *  output;     // [n_tokens]         | i   | -
 
+    // [n_tokens], see llama_batch_ext_set_decision_order(), NULL if no entry has one
+    int32_t      *  decision_order = nullptr;
+
     struct data_t {
         std::vector<llama_token>    token;
         std::vector<float>          embd;
@@ -66,9 +69,6 @@ struct llama_ubatch {
 
     // the llama_ubatch pointers above point to this data if set. otherwise - point to external non-owning data
     std::shared_ptr<data_t> data;
-
-    // [n_tokens], see llama_batch_ext_set_decision_order(), NULL if no entry has one
-    int32_t * decision_order = nullptr;
 };
 
 // a helper for sanitizing, fulfilling and splitting a batch
