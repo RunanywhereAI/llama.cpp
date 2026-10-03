@@ -63,6 +63,7 @@ struct llama_ubatch {
         std::vector<llama_seq_id>   seq_id_unq;
         std::vector<int32_t>        seq_idx;
         std::vector<int8_t>         output;
+        std::vector<int32_t>        decision_order;
 
         std::vector<llama_seq_id> seq_id_data;
     };
