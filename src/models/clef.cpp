@@ -2,7 +2,9 @@
 
 #include "llama-ext.h"
 
+#include <algorithm>
 #include <cmath>
+#include <iterator>
 
 void llama_model_clef::load_arch_hparams(llama_model_loader & ml) {
     llama_model_qwen35::load_arch_hparams(ml);
