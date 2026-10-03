@@ -976,10 +976,28 @@ struct llama_batch llama_batch_init(int32_t n_tokens_alloc, int32_t embd, int32_
 
     batch.logits   = (int8_t *)        malloc(sizeof(int8_t)         * n_tokens_alloc);
 
-    // decision spans for a joint decision head (clef); NULL in the ubatch if unused
-    batch.decision_order = (int32_t *) calloc(n_tokens_alloc, sizeof(int32_t));
+    // decision spans stay NULL until llama_batch_set_decision_order() allocates
+    // them; NULL is what tells a joint decision head this batch has no spans
+    batch.decision_order = nullptr;
 
     return batch;
+}
+
+bool llama_batch_set_decision_order(struct llama_batch * batch, int32_t idx,
+                                    enum llama_decision_order order) {
+    if (batch == nullptr || idx < 0 || idx >= batch->n_tokens) {
+        return false;
+    }
+    if (batch->decision_order == nullptr) {
+        // first span in this batch: allocate zeroed so untouched entries read NONE
+        batch->decision_order =
+            (int32_t *) calloc((size_t) batch->n_tokens, sizeof(int32_t));
+        if (batch->decision_order == nullptr) {
+            return false;
+        }
+    }
+    batch->decision_order[idx] = (int32_t) order;
+    return true;
 }
 
 void llama_batch_free(struct llama_batch batch) {
