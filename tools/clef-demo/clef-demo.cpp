@@ -13,7 +13,8 @@
 //
 // NOTE: consecutive same-order tokens merge into ONE span, so option text
 // must be separated by NONE-order text (the "Option X:" labels below) —
-// this is what the upstream systemone template does.
+// the GGUF's decision template emits label text between options for the
+// same reason.
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -251,7 +252,7 @@ static const DemoCase kDemos[] = {
         {
             "On-device model via the RunAnywhere SDK, airplane mode, no network calls, results only in local storage",
             "Cloud AI API over Tor, so the network operator cannot see which service is being used",
-            "ChatGPT with a VPN and cloud history disabled after each session",
+            "Hosted cloud chat service with a VPN and cloud history cleared after each session",
             "Local model but with SDK analytics/telemetry left enabled for product improvement",
             "Web-based AI app over HTTPS, documents encrypted at rest in the cloud",
         },
@@ -264,7 +265,7 @@ static const DemoCase kDemos[] = {
         {
             "Web-based AI app over HTTPS, documents encrypted at rest in the cloud",
             "Local model but with SDK analytics/telemetry left enabled for product improvement",
-            "ChatGPT with a VPN and cloud history disabled after each session",
+            "Hosted cloud chat service with a VPN and cloud history cleared after each session",
             "Cloud AI API over Tor, so the network operator cannot see which service is being used",
             "On-device model via the RunAnywhere SDK, airplane mode, no network calls, results only in local storage",
         },

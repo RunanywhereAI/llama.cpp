@@ -101,9 +101,8 @@ LLAMA_API void llama_set_embeddings_nextn(struct llama_context * ctx, bool value
 LLAMA_API void llama_set_nextn_layer_offset(struct llama_context * ctx, int32_t offset);
 
 // Values for the per-entry decision order read by a joint decision head (clef).
-// The setter (llama_batch_ext_set_decision_order) lands with the batch_ext
-// framework port; until then the order array stays NULL (no spans).
-// See https://github.com/ggml-org/llama.cpp/pull/29831 for details
+// The span values live on llama_batch::decision_order; NULL (the default from
+// llama_batch_init) means no spans and the head scores nothing.
 enum llama_decision_order {
     LLAMA_DECISION_ORDER_NONE            = 0, // not read by the head
     LLAMA_DECISION_ORDER_QUESTION_NOUL   = 1, // text of a question
