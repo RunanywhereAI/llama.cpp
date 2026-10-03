@@ -187,6 +187,7 @@ struct server_batch {
             batch.n_seq_id + off,
             batch.seq_id   + off,
             batch.logits   + off,
+            nullptr,  // decision_order: sub-view of a caller-owned batch
         };
 
         return view;

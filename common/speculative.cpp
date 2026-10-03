@@ -633,6 +633,7 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
                 /*.n_seq_id =*/ nullptr,
                 /*.seq_id   =*/ nullptr,
                 /*.logits   =*/ nullptr,
+                /*.decision_order =*/ nullptr,
             };
             const int32_t rc = llama_encode(ctx_dft, enc_batch);
             if (rc != 0) {
@@ -1119,6 +1120,7 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
                     /*.n_seq_id =*/ nullptr,
                     /*.seq_id   =*/ nullptr,
                     /*.logits   =*/ nullptr,
+                    /*.decision_order =*/ nullptr,
                 };
 
                 int32_t rc = llama_encode(ctx_dft, enc_batch);
