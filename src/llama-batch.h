@@ -51,7 +51,7 @@ struct llama_ubatch {
     int32_t      *  seq_idx;    // [LLAMA_MAX_SEQ]    | -   | seq_idx
     int8_t       *  output;     // [n_tokens]         | i   | -
 
-    // [n_tokens], see llama_batch_ext_set_decision_order(), NULL if no entry has one
+    // [n_tokens] decision-span values (llama_decision_order); NULL if no entry has one
     int32_t      *  decision_order = nullptr;
 
     struct data_t {

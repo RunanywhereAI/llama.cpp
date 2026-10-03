@@ -18,7 +18,7 @@ void llama_model_clef::load_arch_hparams(llama_model_loader & ml) {
     // used by the head
     ml.get_key(LLM_KV_ATTENTION_LAYERNORM_EPS, hparams.f_norm_eps);
 
-    // the output is one score per token, see llama_batch_ext_set_decision_order()
+    // the output is one score per option, see llama_batch::decision_order
     hparams.n_embd_out_impl = 1;
 }
 
@@ -118,7 +118,7 @@ struct clef_spans {
     bool valid = false;
 };
 
-// see llama_batch_ext_set_decision_order()
+// reads the span values from llama_batch::decision_order
 // if the batch has no usable order, returns one empty question with one empty option
 static clef_spans clef_get_spans(const llama_ubatch & ubatch) {
     clef_spans res;
