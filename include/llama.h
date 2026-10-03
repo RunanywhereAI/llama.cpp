@@ -262,6 +262,10 @@ extern "C" {
         int32_t      *  n_seq_id;
         llama_seq_id ** seq_id;
         int8_t       *  logits;   // TODO: rename this to "output"
+
+        // [n_tokens] decision spans for a joint decision head (clef), see llama_decision_order.
+        // NULL (default from llama_batch_init) = no spans; the head then scores nothing.
+        int32_t      *  decision_order;
     } llama_batch;
 
     enum llama_model_kv_override_type {
