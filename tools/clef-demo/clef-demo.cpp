@@ -15,10 +15,12 @@
 // must be separated by NONE-order text (the "Option X:" labels below) —
 // the GGUF's decision template emits label text between options for the
 // same reason.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <sys/stat.h>
 #include <vector>
@@ -44,8 +46,11 @@ static void usage(const char * argv0) {
 }
 
 static std::string hf_download(const std::string & repo, const std::string & file) {
-    std::string cmd = "mkdir -p " + std::string(kOurDir) + " && hf download \"" + repo + "\" \"" + file +
-                      "\" --local-dir " + kOurDir;
+    // Create the destination with the filesystem API (mkdir -p is not a cmd
+    // builtin on Windows), then shell out to the Hugging Face CLI.
+    std::error_code ec;
+    std::filesystem::create_directories(kOurDir, ec);
+    std::string cmd = "hf download \"" + repo + "\" \"" + file + "\" --local-dir " + kOurDir;
     std::printf("[download] %s\n", cmd.c_str());
     if (std::system(cmd.c_str()) != 0) {
         return "";
@@ -54,15 +59,13 @@ static std::string hf_download(const std::string & repo, const std::string & fil
     if (file_exists(direct)) {
         return direct;
     }
-    char found[1024] = {0};
-    FILE * f = popen(("find " + std::string(kOurDir) + " -name \"" + file + "\" | head -1").c_str(), "r");
-    if (f) {
-        if (fgets(found, sizeof(found), f) && found[0]) {
-            found[strcspn(found, "\r\n")] = 0;
+    // hf --local-dir can nest the file under the repo path; walk for it.
+    for (const auto & entry : std::filesystem::recursive_directory_iterator(kOurDir, ec)) {
+        if (entry.path().filename() == file) {
+            return entry.path().string();
         }
-        pclose(f);
     }
-    return found[0] ? std::string(found) : "";
+    return "";
 }
 
 struct Piece {
