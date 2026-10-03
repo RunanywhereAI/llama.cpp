@@ -148,7 +148,14 @@ static int run_decision(const std::string & model_path, const std::string & qtyp
         batch.n_seq_id[i]       = 1;
         batch.seq_id[i][0]      = 0;
         batch.logits[i]         = 1; // all tokens are outputs (embeddings, pooling NONE)
-        batch.decision_order[i] = orders[i];
+        if (!llama_batch_set_decision_order(&batch, (int32_t)i,
+                                            (llama_decision_order)orders[i])) {
+            std::printf("FAILED to set decision order at %d\n", (int)i);
+            llama_batch_free(batch);
+            llama_free(ctx);
+            llama_model_free(model);
+            return 1;
+        }
     }
 
     if (llama_encode(ctx, batch) != 0) {
@@ -301,8 +308,20 @@ int main(int argc, char ** argv) {
         std::string a = argv[i];
         if (a == "--demo") {
             demo = true;
+            // an argument here is a demo name only if it matches one of the
+            // known cases; anything else (e.g. a model path) is left to be
+            // parsed as a positional argument
             if (i + 1 < argc && argv[i + 1][0] != '-') {
-                demo_name = argv[++i];
+                bool is_known = false;
+                for (const auto & d : kDemos) {
+                    if (demo_name.empty() && std::strcmp(argv[i + 1], d.name) == 0) {
+                        is_known = true;
+                        break;
+                    }
+                }
+                if (is_known) {
+                    demo_name = argv[++i];
+                }
             }
         } else if (a == "--download") {
             want_dl = true;

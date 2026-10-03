@@ -100,17 +100,6 @@ LLAMA_API void llama_set_embeddings_nextn(struct llama_context * ctx, bool value
 // chain multiple trained NextN heads. Default 0 (first head).
 LLAMA_API void llama_set_nextn_layer_offset(struct llama_context * ctx, int32_t offset);
 
-// Values for the per-entry decision order read by a joint decision head (clef).
-// The span values live on llama_batch::decision_order; NULL (the default from
-// llama_batch_init) means no spans and the head scores nothing.
-enum llama_decision_order {
-    LLAMA_DECISION_ORDER_NONE            = 0, // not read by the head
-    LLAMA_DECISION_ORDER_QUESTION_NOUL   = 1, // text of a question
-    LLAMA_DECISION_ORDER_QUESTION_CHOICE = 2,
-    LLAMA_DECISION_ORDER_QUESTION_SCORE  = 3,
-    LLAMA_DECISION_ORDER_OPTION          = 4, // text of an option
-};
-
 // mirrors:
 // LLAMA_API float * llama_get_embeddings(struct llama_context * ctx);
 LLAMA_API float * llama_get_embeddings_nextn(struct llama_context * ctx);
