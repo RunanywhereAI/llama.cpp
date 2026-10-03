@@ -253,6 +253,18 @@ extern "C" {
     //               - if not:        only the last token is output
     //            )
     //
+    // Values for the per-entry decision order read by a joint decision head.
+    // An entry describes which part of a joint decision prompt its token
+    // belongs to: a question span (typed by the answer kind it expects), an
+    // option span, or NONE for glue text that the head ignores.
+    enum llama_decision_order {
+        LLAMA_DECISION_ORDER_NONE            = 0, // not read by the head
+        LLAMA_DECISION_ORDER_QUESTION_NOUL   = 1, // text of a question
+        LLAMA_DECISION_ORDER_QUESTION_CHOICE = 2,
+        LLAMA_DECISION_ORDER_QUESTION_SCORE  = 3,
+        LLAMA_DECISION_ORDER_OPTION          = 4, // text of an option
+    };
+
     typedef struct llama_batch {
         int32_t n_tokens;
 
@@ -262,6 +274,11 @@ extern "C" {
         int32_t      *  n_seq_id;
         llama_seq_id ** seq_id;
         int8_t       *  logits;   // TODO: rename this to "output"
+
+        // [n_tokens] decision spans for a joint decision head, see
+        // llama_decision_order and llama_batch_set_decision_order().
+        // NULL (the default from llama_batch_init) = no spans; the head scores nothing.
+        int32_t      *  decision_order;
     } llama_batch;
 
     enum llama_model_kv_override_type {
@@ -955,6 +972,16 @@ extern "C" {
 
     // Frees a batch of tokens allocated with llama_batch_init()
     LLAMA_API void llama_batch_free(struct llama_batch batch);
+
+    // Tag one entry of a batch with its decision-span role for a joint decision
+    // head. The span array is (re)allocated on the first call and owned by the
+    // batch afterwards (freed by llama_batch_free); until then it stays NULL,
+    // which is what tells the head that the batch has no spans.
+    // Returns true on success, false on an out-of-range index or allocation failure.
+    LLAMA_API bool llama_batch_set_decision_order(
+            struct llama_batch * batch,
+            int32_t idx,
+            enum llama_decision_order order);
 
     // Process a batch of tokens.
     // In contrast to llama_decode() - this call does not use KV cache.

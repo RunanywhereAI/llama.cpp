@@ -91,6 +91,7 @@ int llama_batched_bench(int argc, char ** argv) {
                 batch.n_seq_id + i,
                 batch.seq_id   + i,
                 batch.logits   + i,
+                nullptr,  // decision_order: no spans on a plain decode batch
             };
 
             const int ret = llama_decode(ctx, batch_view);
