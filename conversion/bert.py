@@ -11,10 +11,11 @@ import torch
 if TYPE_CHECKING:
     from torch import Tensor
 
-from .base import ModelBase, SentencePieceTokenTypes, TextModel, gguf, logger
+from .base import ModelBase, SentencePieceTokenTypes, TextModel, gguf, jinja_str_or_json, logger
 
 
 @ModelBase.register("BertModel", "BertForMaskedLM", "CamembertModel", "BertForSequenceClassification")
+@ModelBase.example("BAAI/bge-small-en-v1.5", "dangvantuan/sentence-camembert-base")
 class BertModel(TextModel):
     model_arch = gguf.MODEL_ARCH.BERT
 
@@ -240,6 +241,7 @@ class BertModel(TextModel):
 
 
 @ModelBase.register("DistilBertModel", "DistilBertForMaskedLM", "DistilBertForSequenceClassification")
+@ModelBase.example("distilbert/distilbert-base-uncased")
 class DistilBertModel(BertModel):
     model_arch = gguf.MODEL_ARCH.BERT
 
@@ -263,6 +265,7 @@ class DistilBertModel(BertModel):
 
 
 @ModelBase.register("RobertaModel", "RobertaForSequenceClassification")
+@ModelBase.example("sentence-transformers/stsb-roberta-base")
 class RobertaModel(BertModel):
     model_arch = gguf.MODEL_ARCH.BERT
 
@@ -312,6 +315,7 @@ class RobertaModel(BertModel):
 
 
 @ModelBase.register("NomicBertModel")
+@ModelBase.example("nomic-ai/nomic-embed-text-v1.5")
 class NomicBertModel(BertModel):
     model_arch = gguf.MODEL_ARCH.BERT
 
@@ -337,7 +341,7 @@ class NomicBertModel(BertModel):
         else:
             raise ValueError(f"unrecognized parameters: n_positions={npos}, max_trained_positions={mtp}")
 
-        assert self.hparams["activation_function"] == "gelu" if self.is_moe else "swiglu"
+        assert self.hparams["activation_function"] == ("gelu" if self.is_moe else "swiglu")
 
         # this doesn't do anything in the HF version
         assert self.hparams["causal"] is False
@@ -400,6 +404,7 @@ class NomicBertModel(BertModel):
 
 
 @ModelBase.register("NeoBERT", "NeoBERTLMHead", "NeoBERTForSequenceClassification")
+@ModelBase.example("chandar-lab/NeoBERT")
 class NeoBert(BertModel):
     model_arch = gguf.MODEL_ARCH.NEO_BERT
 
@@ -431,6 +436,7 @@ class NeoBert(BertModel):
 
 
 @ModelBase.register("EuroBertModel", "JinaEmbeddingsV5Model")
+@ModelBase.example("hf-tiny-v2/tiny-random-EuroBertModel", "jinaai/jina-embeddings-v5-text-nano")
 class EuroBertModel(TextModel):
     model_arch = gguf.MODEL_ARCH.EUROBERT
 
@@ -459,6 +465,7 @@ class EuroBertModel(TextModel):
 
 
 @ModelBase.register("XLMRobertaModel", "XLMRobertaForSequenceClassification")
+@ModelBase.example("BAAI/bge-m3")
 class XLMRobertaModel(BertModel):
     model_arch = gguf.MODEL_ARCH.BERT
     _lora_files = {}
@@ -561,6 +568,7 @@ class XLMRobertaModel(BertModel):
 
 
 @ModelBase.register("JinaBertModel", "JinaBertForMaskedLM")
+@ModelBase.example("jinaai/jina-embeddings-v2-base-en")
 class JinaBertV2Model(BertModel):
     model_arch = gguf.MODEL_ARCH.JINA_BERT_V2
 
@@ -588,6 +596,7 @@ class JinaBertV2Model(BertModel):
 
 
 @ModelBase.register("ModernBertModel", "ModernBertForMaskedLM", "ModernBertForSequenceClassification")
+@ModelBase.example("answerdotai/ModernBERT-base")
 class ModernBertModel(BertModel):
     model_arch = gguf.MODEL_ARCH.MODERN_BERT
 
@@ -596,6 +605,17 @@ class ModernBertModel(BertModel):
         self.gguf_writer.add_add_eos_token(True)
         self.gguf_writer.add_add_sep_token(True)
         self._set_vocab_gpt2()
+
+    def get_vocab_base(self) -> tuple[list[str], list[int], str]:
+        tokens, toktypes, tokpre = super().get_vocab_base()
+        if tokpre == "mmbert":
+            # the added tokens for runs of spaces are never matched by the reference tokenizer
+            space = b"\xe2\x96\x81".decode("utf-8")
+            for i, token in enumerate(tokens):
+                if toktypes[i] == gguf.TokenType.USER_DEFINED and token and not token.strip(" "):
+                    tokens[i] = space * len(token)
+                    toktypes[i] = gguf.TokenType.NORMAL
+        return tokens, toktypes, tokpre
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
@@ -630,3 +650,331 @@ class ModernBertModel(BertModel):
                 name = "classifier.out_proj.bias"
 
         yield from super().modify_tensors(data_torch, name, bid)
+
+
+def _is_decision_checkpoint(dir_model: Path) -> bool:
+    if not (dir_model / "encoder" / "config.json").is_file():
+        return False
+    return (dir_model / "rl_agent_config.json").is_file() or (dir_model / "julia_config.json").is_file()
+
+
+@ModelBase.register_hparams_loader(_is_decision_checkpoint)
+def _load_decision_hparams(dir_model: Path) -> dict[str, Any]:
+    logger.info("gguf: detected ModernBert decision checkpoint")
+    hparams = ModelBase.load_hparams(dir_model / "encoder", False, guess=False)
+    is_julia = (dir_model / "julia_config.json").is_file()
+    with open(dir_model / ("julia_config.json" if is_julia else "rl_agent_config.json"), encoding="utf-8") as f:
+        decision = json.load(f)
+    n_layer = hparams["num_hidden_layers"]
+    n_layer_head = decision["head_layers"]
+    hparams["architectures"] = ["ModernBertDecisionModel"]
+    hparams["decision"] = decision
+    # the head blocks are appended to the encoder blocks, they use a plain 4x MLP
+    hparams["num_hidden_layers"] = n_layer + n_layer_head
+    hparams["intermediate_size"] = [hparams["intermediate_size"]] * n_layer + [4 * hparams["hidden_size"]] * n_layer_head
+    return hparams
+
+
+@ModelBase.register("ModernBertDecisionModel")
+@ModelBase.example("convaiinnovations/laya", "SupersonicLabs/Julia-1")
+class ModernBertDecisionModel(ModernBertModel):
+    model_arch = gguf.MODEL_ARCH.MODERN_BERT
+
+    def set_vocab(self):
+        # vocab loaders read self.dir_model, point it to the tokenizer sub-directory
+        dir_model = self.dir_model
+        self.dir_model = dir_model / "tokenizer"
+        try:
+            super().set_vocab()
+        finally:
+            self.dir_model = dir_model
+        self.gguf_writer.add_token_type_count(3)  # choice, score, noul
+        self.gguf_writer.add_chat_template([{"name": "systemone", "template": self._systemone_template()}])
+
+    def _systemone_template(self) -> str:
+        with open(self.dir_model / "tokenizer" / "tokenizer_config.json", encoding="utf-8") as f:
+            tokenizer_config = json.load(f)
+        tok_cls, tok_sep, tok_mask = (tokenizer_config[k] for k in ("cls_token", "sep_token", "mask_token"))
+        description = jinja_str_or_json("o.description")
+        if self.hparams["decision"].get("architecture") == "JuliaDecisionModel":
+            option = "{% if o.description %}" + description + "{% else %}{{ o.key }}{% endif %}"
+        else:
+            option = (
+                "{% if type == 'choice' %}{{ o.key }}{% if o.description %}: " + description + "{% endif %}"
+                "{% elif type == 'score' %}level {{ o.key }}: " + description
+                + "{% else %}{{ o.key }}: {% if o.description %}" + description
+                + "{% elif o.key == 'true' %}yes, the statement holds"
+                "{% else %}no, the statement does not hold{% endif %}{% endif %}"
+            )
+        return (
+            tok_cls + "{{ type }} question: " + jinja_str_or_json("instructions") + tok_sep
+            + "{% for o in options %}" + tok_mask + " " + option + "{% endfor %}"
+            + tok_sep + jinja_str_or_json("state") + tok_sep
+        )
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        decision = self.hparams["decision"]
+        self.gguf_writer.add_decision_type(gguf.DecisionType.LAYA)
+        self.gguf_writer.add_decision_block_count(decision["head_layers"])
+        self.gguf_writer.add_decision_max_head_tokens(decision.get("head_max_len", 256))
+        for name, value in zip(("choice", "score", "noul"), decision.get("temperature", [])):
+            self.gguf_writer.add_decision_temperature(name, value)
+        # "choice:3-5" -> "choice.3_5", "choice:11+" -> "choice.11"
+        for name, value in decision.get("temperature_by_options", {}).items():
+            self.gguf_writer.add_decision_temperature(name.replace(":", ".").replace("-", "_").rstrip("+"), value)
+# GLiNER2.x checkpoints pack their own task heads into the same safetensors as
+# the DeBERTa encoder: span representation, hierarchical instance counting, and
+# the classification MLP. None belong in an encoder conversion.
+GLINER_TASK_HEAD_PREFIXES = ("span_rep.", "count_embed.", "count_pred.")
+GLINER_DROPPED: set[str] = set()
+
+
+@ModelBase.register("DebertaV2Model", "DebertaV3Model", "DebertaForSequenceClassification",
+                    "DebertaV2ForMaskedLM")
+class DebertaV2Model(BertModel):
+    """DeBERTa-v2 / v3 encoder.
+
+    The block layout is BERT-shaped, so BertModel is the right parent. What
+    differs is attention: DeBERTa uses *disentangled* attention, adding a
+    content->position and a position->content term whose keys/queries come from
+    ONE model-level relative-position embedding shared by every layer
+    (enc.attn_rel_emb), not from a per-block bias like T5's DEC_ATTN_REL_B.
+    `share_att_key: true` reuses the content Q/K projections for the position
+    stream, so there are no separate pos_q / pos_k weights to carry.
+
+    The graph lives in `src/models/deberta-v3.cpp`.
+
+    On versions: v2 and v3 share the architecture and the HF
+    `model_type: "deberta-v2"`; they differ only in pretraining, so both
+    register here and differ only in the arch string written to the file.
+    """
+
+    model_arch = gguf.MODEL_ARCH.DEBERTA_V3
+
+    def __init__(self, dir_model: Path, ftype: gguf.LlamaFileType, fname_out: Path, **kwargs: Any):
+        hparams = kwargs.pop("hparams", None)
+        if hparams is None:
+            hparams = ModelBase.load_hparams(dir_model, False)
+
+        # A GLiNER checkpoint nests the real encoder hparams in
+        # encoder_config/config.json; a bare deberta-v3-large export keeps them
+        # at the top level. Same architecture either way -- only the tensor
+        # prefix differs, and filter_tensors() handles that -- so this merge
+        # only matters for picking up position_buckets / pos_att_type.
+        enc_dir = dir_model / "encoder_config"
+        if enc_dir.is_dir() and (enc_dir / "config.json").is_file():
+            try:
+                with open(enc_dir / "config.json", "r", encoding="utf-8") as f:
+                    hparams = {**hparams, **json.load(f)}
+            except (OSError, ValueError):
+                pass
+
+        hf_arch = str((hparams.get("architectures") or [""])[0])
+        self.model_arch = (gguf.MODEL_ARCH.DEBERTA_V2
+                           if hf_arch == "DebertaV2Model" else gguf.MODEL_ARCH.DEBERTA_V3)
+
+        super().__init__(dir_model, ftype, fname_out, hparams=hparams, **kwargs)
+
+    def set_gguf_parameters(self):
+        # add_causal_attention(False) is inherited from BertModel -- do not
+        # repeat it here or the writer warns about a duplicated key.
+        super().set_gguf_parameters()
+
+        # Disentangled attention needs both bucket constants. They are NOT
+        # interchangeable with relative_buckets_count (T5 / ModernBERT): the
+        # DeBERTa curve is fitted against max_position, and the two share a
+        # bucketing *shape* but not constants. Fail loudly rather than writing
+        # a file the graph cannot interpret.
+        buckets = self.hparams.get("position_buckets") or 0
+        if buckets <= 0:
+            raise ValueError(
+                "deberta: position_buckets missing or non-positive; disentangled "
+                "attention cannot be built without it"
+            )
+        self.gguf_writer.add_relative_attn_buckets_count(buckets)
+
+        # `max_relative_positions: -1` means "fall back to
+        # max_position_embeddings" in DebertaV2Encoder.__init__. Resolve it
+        # here rather than persisting -1 into the file.
+        max_pos = self.hparams.get("max_relative_positions")
+        if not isinstance(max_pos, int) or max_pos < 1:
+            max_pos = self.hparams.get("max_position_embeddings")
+        if not isinstance(max_pos, int) or max_pos < 1:
+            raise ValueError(
+                "deberta: cannot resolve max_relative_positions / max_position_embeddings"
+            )
+        self.gguf_writer.add_relative_attn_pos_max(max_pos)
+
+        # Encoder FFN activation. This is about the block graph only and is
+        # independent of whatever activation the task head uses.
+        self.gguf_writer.add_hidden_act(self.hparams.get("hidden_act", "gelu"))
+
+        self._log_deberta_config()
+
+    def _log_deberta_config(self) -> None:
+        h = self.hparams
+        n_head = h.get("num_attention_heads") or 0
+        n_embd = h.get("hidden_size") or 0
+        logger.info(
+            "gguf: deberta %s | layers=%d heads=%d d_head=%d ff=%d vocab=%d",
+            "v2" if self.model_arch == gguf.MODEL_ARCH.DEBERTA_V2 else "v3",
+            self.block_count, n_head, n_embd // max(1, n_head),
+            h.get("intermediate_size", 0), h.get("vocab_size", 0),
+        )
+        logger.info(
+            "gguf: disentangled attention pos_att_type=%s share_att_key=%s | "
+            "rel buckets=%d max=%d | position_biased_input=%s norm_rel_ebd=%s",
+            h.get("pos_att_type"), h.get("share_att_key"),
+            h.get("position_buckets", 0), h.get("max_relative_positions", -1),
+            h.get("position_biased_input", True), h.get("norm_rel_ebd", "none"),
+        )
+
+    def set_vocab(self):
+        """Write the DeBERTa-v3 vocabulary.
+
+        DeBERTa-v3's tokenizer is a Metaspace pre-tokenizer (replacement U+2581,
+        prepend_scheme "always", split true) over a **Unigram** model, shipped as
+        `tokenizer.json`. That is neither WordPiece (which BertModel.set_vocab
+        assumes) nor GPT-2 BPE, and its Unigram entries carry scores that
+        `_set_vocab_gpt2` would silently drop. It is also the *same* metaspace
+        convention as SentencePiece, so the llama.cpp "llama" tokenizer with the
+        "default" pre-tokenizer is the correct target -- which is what
+        `_set_vocab_sentencepiece` writes, minus the need for a `tokenizer.model`
+        proto that this checkpoint does not ship.
+
+        A plain v2 export ships `tokenizer.model` and is handled by the generic
+        sentencepiece path.
+        """
+        if (self.dir_model / "tokenizer.model").is_file():
+            self._set_vocab_sentencepiece()
+        elif (self.dir_model / "tokenizer.json").is_file():
+            self._set_vocab_metaspace_unigram()
+        else:
+            raise FileNotFoundError(
+                "deberta: neither tokenizer.model nor tokenizer.json found in "
+                f"{self.dir_model}"
+            )
+
+        self.gguf_writer.add_token_type_count(self.hparams.get("type_vocab_size", 0) or 0)
+
+    def _set_vocab_metaspace_unigram(self) -> None:
+        """Metaspace + Unigram vocab from `tokenizer.json`, written as an SPM-style
+        ('llama' + 'default') vocabulary *with* token scores."""
+        with open(self.dir_model / "tokenizer.json", "r", encoding="utf-8") as f:
+            tokjson = json.load(f)
+
+        model = tokjson.get("model", {})
+        if model.get("type") != "Unigram":
+            # Not the layout this path understands. Fail loudly: writing a BPE
+            # vocab here would produce a file that loads and tokenizes wrongly.
+            raise ValueError(
+                f"deberta: expected a Unigram tokenizer.json, got "
+                f"{model.get('type')!r}"
+            )
+
+        pre = tokjson.get("pre_tokenizer", {})
+        subs = pre.get("pretokenizers", [pre])
+        if not any(
+            isinstance(p, dict) and p.get("type") == "Metaspace"
+            and p.get("replacement", "\u2581") == "\u2581"
+            for p in subs
+        ):
+            raise ValueError(
+                f"deberta: expected a Metaspace(U+2581) pre-tokenizer, got {pre!r}"
+            )
+
+        # Piece -> score. Scores align with the emitted token list; placeholders
+        # for ids absent from the vocab get 0.0.
+        scores_by_piece = {piece: float(score) for piece, score in model["vocab"]}
+
+        tokens, toktypes, tokpre = self.get_vocab_base()
+        if tokpre != "default":
+            # get_vocab_base detects the pre-tokenizer by hashing a probe
+            # encoding. If that drifts from the structural check above, one of
+            # them is wrong and we should not guess which.
+            raise ValueError(
+                f"deberta: vocab pre-tokenizer hash resolved to {tokpre!r}, "
+                "expected 'default' for a metaspace/unigram tokenizer"
+            )
+
+        scores = [scores_by_piece.get(tok, 0.0) for tok in tokens]
+
+        self.gguf_writer.add_tokenizer_model("llama")
+        self.gguf_writer.add_tokenizer_pre("default")
+        self.gguf_writer.add_token_list(tokens)
+        self.gguf_writer.add_token_types(toktypes)
+        self.gguf_writer.add_token_scores(scores)
+
+        special_vocab = gguf.SpecialVocab(self.dir_model, n_vocab=len(tokens))
+        special_vocab.add_to_gguf(self.gguf_writer)
+
+        logger.info(
+            "gguf: metaspace/unigram vocab written as llama+default "
+            "(%d tokens, %d with non-zero scores)",
+            len(tokens), sum(1 for s in scores if s != 0.0),
+        )
+
+    @classmethod
+    def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
+        name, gen = item
+
+        # act_head is not used for the answer, the fitted temperatures come from the config
+        if name.startswith("act_head.") or name == "temperature":
+            return None
+
+        if name.startswith("encoder."):
+            name = name[8:]
+
+        return super().filter_tensors((name, gen))
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if name.startswith("head.layers.") and bid is not None:
+            # the head blocks come after the encoder blocks
+            suffix = name.split(".", 3)[3].replace("in_proj_", "in_proj.")
+            bid += self.block_count - self.hparams["decision"]["head_layers"]
+            name = f"head.layers.{bid}.{suffix}"
+
+        yield from super().modify_tensors(data_torch, name, bid)
+        # Bare HF export prefix.
+        if name.startswith("deberta."):
+            name = name[8:]
+
+        # GLiNER-style wrapper: `encoder.encoder.layer.N...` -> `encoder.layer.N...`.
+        # Matched explicitly rather than by a blanket prefix strip so a genuine
+        # top-level `encoder.LayerNorm` is not mangled into a bogus name.
+        if (name.startswith("encoder.encoder.") or name.startswith("encoder.embeddings.")
+                or name in ("encoder.rel_embeddings", "encoder.LayerNorm")):
+            name = name[len("encoder."):]
+
+        if name.endswith(".gamma"):
+            name = name[:-6] + ".weight"
+        if name.endswith(".beta"):
+            name = name[:-5] + ".bias"
+
+        # v3 has no absolute position embeddings (position_biased_input=False)
+        # and no token_type embeddings (type_vocab_size=0). Drop if present.
+        if name in ("embeddings.position_ids", "embeddings.position_embeddings",
+                    "embeddings.token_type_embeddings",
+                    "pooler.dense.weight", "pooler.dense.bias"):
+            return None
+
+        # MLM head and sequence-classification head are not part of the encoder.
+        if name.startswith(("cls.predictions", "cls.seq_relationship", "classifier.")):
+            return None
+
+        # GLiNER2.x task heads, carried in the same safetensors as the encoder.
+        # None of these belong in an encoder conversion; Gate 0 (2026-09-26)
+        # measured that classification touches only encoder + classifier, and
+        # the classifier is converted separately in Phase 3a.
+        for prefix in GLINER_TASK_HEAD_PREFIXES:
+            if name.startswith(prefix):
+                head = prefix.rstrip(".")
+                if head not in GLINER_DROPPED:
+                    GLINER_DROPPED.add(head)
+                    logger.info(
+                        "gguf: dropping GLiNER task head %r -- not part of the encoder "
+                        "(the classifier head is converted separately)", head)
+                return None
+
+        return super().filter_tensors((name, gen))

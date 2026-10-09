@@ -11,6 +11,7 @@ from .base import LazyTorchTensor, ModelBase, TextModel, gguf
 
 
 @ModelBase.register("MapleForCausalLM")
+@ModelBase.example("deepgrove/maple-preview")
 class MapleModel(TextModel):
     model_arch = gguf.MODEL_ARCH.MAPLE
 
@@ -24,25 +25,15 @@ class MapleModel(TextModel):
         assert hparams.get("nope_on_global_attention", False)
 
         head_dim = hparams.get("head_dim", hparams["hidden_size"] // hparams["num_attention_heads"])
-        partial_rotary_factor = self.rope_parameters.get("partial_rotary_factor", hparams.get("partial_rotary_factor", 1.0))
+        partial_rotary_factor = self.rope_parameters.get("partial_rotary_factor", 1.0)
 
         self.gguf_writer.add_vocab_size(hparams["vocab_size"])
         self.gguf_writer.add_rope_dimension_count(int(head_dim * partial_rotary_factor))
         self.gguf_writer.add_sliding_window(hparams["sliding_window"])
         self.gguf_writer.add_sliding_window_pattern([layer_type == "sliding_attention" for layer_type in hparams["layer_types"]])
         self.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
-
-    def tensor_force_quant(self, name: str, new_name: str, bid: int | None, n_dims: int) -> gguf.GGMLQuantizationType | bool:
-        if self.match_model_tensor_name(new_name, gguf.MODEL_TENSOR.FFN_GATE_INP, bid):
-            return gguf.GGMLQuantizationType.F32
-
-        if any(self.match_model_tensor_name(new_name, key, bid) for key in (
-            gguf.MODEL_TENSOR.TOKEN_EMBD,
-            gguf.MODEL_TENSOR.OUTPUT,
-        )):
-            return gguf.GGMLQuantizationType.F16
-
-        return super().tensor_force_quant(name, new_name, bid, n_dims)
+        # the reference clamps the MoE SwiGLU gate/up at 7.0 (modeling_maple.py)
+        self.gguf_writer.add_swiglu_clamp_exp([7.0] * self.block_count)
 
     _experts: list[dict[str, Tensor]] | None = None
 
@@ -52,14 +43,16 @@ class MapleModel(TextModel):
         dtype = tensors[0].dtype
         meta = LazyTorchTensor.meta_with_dtype_and_shape(dtype, shape)
 
-        def stack() -> Tensor:
+        # tensors goes through args, not the closure, so that `func` matches
+        # LazyBase's single-argument shape
+        def stack(ts: list[Tensor]) -> Tensor:
             result = torch.empty(shape, dtype=dtype)
-            for expert_id, tensor in enumerate(tensors):
+            for expert_id, tensor in enumerate(ts):
                 result[expert_id].copy_(LazyTorchTensor.to_eager(tensor))
-            tensors.clear()
+            ts.clear()
             return result
 
-        return cast(torch.Tensor, LazyTorchTensor(meta=meta, args=(), func=stack))
+        return cast(torch.Tensor, LazyTorchTensor(meta=meta, args=(tensors,), func=stack))
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if "mlp.experts" in name:
