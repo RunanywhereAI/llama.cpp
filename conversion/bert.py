@@ -723,6 +723,197 @@ class ModernBertDecisionModel(ModernBertModel):
         # "choice:3-5" -> "choice.3_5", "choice:11+" -> "choice.11"
         for name, value in decision.get("temperature_by_options", {}).items():
             self.gguf_writer.add_decision_temperature(name.replace(":", ".").replace("-", "_").rstrip("+"), value)
+# GLiNER2.x checkpoints pack their own task heads into the same safetensors as
+# the DeBERTa encoder: span representation, hierarchical instance counting, and
+# the classification MLP. None belong in an encoder conversion.
+GLINER_TASK_HEAD_PREFIXES = ("span_rep.", "count_embed.", "count_pred.")
+GLINER_DROPPED: set[str] = set()
+
+
+@ModelBase.register("DebertaV2Model", "DebertaV3Model", "DebertaForSequenceClassification",
+                    "DebertaV2ForMaskedLM")
+class DebertaV2Model(BertModel):
+    """DeBERTa-v2 / v3 encoder.
+
+    The block layout is BERT-shaped, so BertModel is the right parent. What
+    differs is attention: DeBERTa uses *disentangled* attention, adding a
+    content->position and a position->content term whose keys/queries come from
+    ONE model-level relative-position embedding shared by every layer
+    (enc.attn_rel_emb), not from a per-block bias like T5's DEC_ATTN_REL_B.
+    `share_att_key: true` reuses the content Q/K projections for the position
+    stream, so there are no separate pos_q / pos_k weights to carry.
+
+    The graph lives in `src/models/deberta-v3.cpp`.
+
+    On versions: v2 and v3 share the architecture and the HF
+    `model_type: "deberta-v2"`; they differ only in pretraining, so both
+    register here and differ only in the arch string written to the file.
+    """
+
+    model_arch = gguf.MODEL_ARCH.DEBERTA_V3
+
+    def __init__(self, dir_model: Path, ftype: gguf.LlamaFileType, fname_out: Path, **kwargs: Any):
+        hparams = kwargs.pop("hparams", None)
+        if hparams is None:
+            hparams = ModelBase.load_hparams(dir_model, False)
+
+        # A GLiNER checkpoint nests the real encoder hparams in
+        # encoder_config/config.json; a bare deberta-v3-large export keeps them
+        # at the top level. Same architecture either way -- only the tensor
+        # prefix differs, and filter_tensors() handles that -- so this merge
+        # only matters for picking up position_buckets / pos_att_type.
+        enc_dir = dir_model / "encoder_config"
+        if enc_dir.is_dir() and (enc_dir / "config.json").is_file():
+            try:
+                with open(enc_dir / "config.json", "r", encoding="utf-8") as f:
+                    hparams = {**hparams, **json.load(f)}
+            except (OSError, ValueError):
+                pass
+
+        hf_arch = str((hparams.get("architectures") or [""])[0])
+        self.model_arch = (gguf.MODEL_ARCH.DEBERTA_V2
+                           if hf_arch == "DebertaV2Model" else gguf.MODEL_ARCH.DEBERTA_V3)
+
+        super().__init__(dir_model, ftype, fname_out, hparams=hparams, **kwargs)
+
+    def set_gguf_parameters(self):
+        # add_causal_attention(False) is inherited from BertModel -- do not
+        # repeat it here or the writer warns about a duplicated key.
+        super().set_gguf_parameters()
+
+        # Disentangled attention needs both bucket constants. They are NOT
+        # interchangeable with relative_buckets_count (T5 / ModernBERT): the
+        # DeBERTa curve is fitted against max_position, and the two share a
+        # bucketing *shape* but not constants. Fail loudly rather than writing
+        # a file the graph cannot interpret.
+        buckets = self.hparams.get("position_buckets") or 0
+        if buckets <= 0:
+            raise ValueError(
+                "deberta: position_buckets missing or non-positive; disentangled "
+                "attention cannot be built without it"
+            )
+        self.gguf_writer.add_relative_attn_buckets_count(buckets)
+
+        # `max_relative_positions: -1` means "fall back to
+        # max_position_embeddings" in DebertaV2Encoder.__init__. Resolve it
+        # here rather than persisting -1 into the file.
+        max_pos = self.hparams.get("max_relative_positions")
+        if not isinstance(max_pos, int) or max_pos < 1:
+            max_pos = self.hparams.get("max_position_embeddings")
+        if not isinstance(max_pos, int) or max_pos < 1:
+            raise ValueError(
+                "deberta: cannot resolve max_relative_positions / max_position_embeddings"
+            )
+        self.gguf_writer.add_relative_attn_pos_max(max_pos)
+
+        # Encoder FFN activation. This is about the block graph only and is
+        # independent of whatever activation the task head uses.
+        self.gguf_writer.add_hidden_act(self.hparams.get("hidden_act", "gelu"))
+
+        self._log_deberta_config()
+
+    def _log_deberta_config(self) -> None:
+        h = self.hparams
+        n_head = h.get("num_attention_heads") or 0
+        n_embd = h.get("hidden_size") or 0
+        logger.info(
+            "gguf: deberta %s | layers=%d heads=%d d_head=%d ff=%d vocab=%d",
+            "v2" if self.model_arch == gguf.MODEL_ARCH.DEBERTA_V2 else "v3",
+            self.block_count, n_head, n_embd // max(1, n_head),
+            h.get("intermediate_size", 0), h.get("vocab_size", 0),
+        )
+        logger.info(
+            "gguf: disentangled attention pos_att_type=%s share_att_key=%s | "
+            "rel buckets=%d max=%d | position_biased_input=%s norm_rel_ebd=%s",
+            h.get("pos_att_type"), h.get("share_att_key"),
+            h.get("position_buckets", 0), h.get("max_relative_positions", -1),
+            h.get("position_biased_input", True), h.get("norm_rel_ebd", "none"),
+        )
+
+    def set_vocab(self):
+        """Write the DeBERTa-v3 vocabulary.
+
+        DeBERTa-v3's tokenizer is a Metaspace pre-tokenizer (replacement U+2581,
+        prepend_scheme "always", split true) over a **Unigram** model, shipped as
+        `tokenizer.json`. That is neither WordPiece (which BertModel.set_vocab
+        assumes) nor GPT-2 BPE, and its Unigram entries carry scores that
+        `_set_vocab_gpt2` would silently drop. It is also the *same* metaspace
+        convention as SentencePiece, so the llama.cpp "llama" tokenizer with the
+        "default" pre-tokenizer is the correct target -- which is what
+        `_set_vocab_sentencepiece` writes, minus the need for a `tokenizer.model`
+        proto that this checkpoint does not ship.
+
+        A plain v2 export ships `tokenizer.model` and is handled by the generic
+        sentencepiece path.
+        """
+        if (self.dir_model / "tokenizer.model").is_file():
+            self._set_vocab_sentencepiece()
+        elif (self.dir_model / "tokenizer.json").is_file():
+            self._set_vocab_metaspace_unigram()
+        else:
+            raise FileNotFoundError(
+                "deberta: neither tokenizer.model nor tokenizer.json found in "
+                f"{self.dir_model}"
+            )
+
+        self.gguf_writer.add_token_type_count(self.hparams.get("type_vocab_size", 0) or 0)
+
+    def _set_vocab_metaspace_unigram(self) -> None:
+        """Metaspace + Unigram vocab from `tokenizer.json`, written as an SPM-style
+        ('llama' + 'default') vocabulary *with* token scores."""
+        with open(self.dir_model / "tokenizer.json", "r", encoding="utf-8") as f:
+            tokjson = json.load(f)
+
+        model = tokjson.get("model", {})
+        if model.get("type") != "Unigram":
+            # Not the layout this path understands. Fail loudly: writing a BPE
+            # vocab here would produce a file that loads and tokenizes wrongly.
+            raise ValueError(
+                f"deberta: expected a Unigram tokenizer.json, got "
+                f"{model.get('type')!r}"
+            )
+
+        pre = tokjson.get("pre_tokenizer", {})
+        subs = pre.get("pretokenizers", [pre])
+        if not any(
+            isinstance(p, dict) and p.get("type") == "Metaspace"
+            and p.get("replacement", "\u2581") == "\u2581"
+            for p in subs
+        ):
+            raise ValueError(
+                f"deberta: expected a Metaspace(U+2581) pre-tokenizer, got {pre!r}"
+            )
+
+        # Piece -> score. Scores align with the emitted token list; placeholders
+        # for ids absent from the vocab get 0.0.
+        scores_by_piece = {piece: float(score) for piece, score in model["vocab"]}
+
+        tokens, toktypes, tokpre = self.get_vocab_base()
+        if tokpre != "default":
+            # get_vocab_base detects the pre-tokenizer by hashing a probe
+            # encoding. If that drifts from the structural check above, one of
+            # them is wrong and we should not guess which.
+            raise ValueError(
+                f"deberta: vocab pre-tokenizer hash resolved to {tokpre!r}, "
+                "expected 'default' for a metaspace/unigram tokenizer"
+            )
+
+        scores = [scores_by_piece.get(tok, 0.0) for tok in tokens]
+
+        self.gguf_writer.add_tokenizer_model("llama")
+        self.gguf_writer.add_tokenizer_pre("default")
+        self.gguf_writer.add_token_list(tokens)
+        self.gguf_writer.add_token_types(toktypes)
+        self.gguf_writer.add_token_scores(scores)
+
+        special_vocab = gguf.SpecialVocab(self.dir_model, n_vocab=len(tokens))
+        special_vocab.add_to_gguf(self.gguf_writer)
+
+        logger.info(
+            "gguf: metaspace/unigram vocab written as llama+default "
+            "(%d tokens, %d with non-zero scores)",
+            len(tokens), sum(1 for s in scores if s != 0.0),
+        )
 
     @classmethod
     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
@@ -745,3 +936,45 @@ class ModernBertDecisionModel(ModernBertModel):
             name = f"head.layers.{bid}.{suffix}"
 
         yield from super().modify_tensors(data_torch, name, bid)
+        # Bare HF export prefix.
+        if name.startswith("deberta."):
+            name = name[8:]
+
+        # GLiNER-style wrapper: `encoder.encoder.layer.N...` -> `encoder.layer.N...`.
+        # Matched explicitly rather than by a blanket prefix strip so a genuine
+        # top-level `encoder.LayerNorm` is not mangled into a bogus name.
+        if (name.startswith("encoder.encoder.") or name.startswith("encoder.embeddings.")
+                or name in ("encoder.rel_embeddings", "encoder.LayerNorm")):
+            name = name[len("encoder."):]
+
+        if name.endswith(".gamma"):
+            name = name[:-6] + ".weight"
+        if name.endswith(".beta"):
+            name = name[:-5] + ".bias"
+
+        # v3 has no absolute position embeddings (position_biased_input=False)
+        # and no token_type embeddings (type_vocab_size=0). Drop if present.
+        if name in ("embeddings.position_ids", "embeddings.position_embeddings",
+                    "embeddings.token_type_embeddings",
+                    "pooler.dense.weight", "pooler.dense.bias"):
+            return None
+
+        # MLM head and sequence-classification head are not part of the encoder.
+        if name.startswith(("cls.predictions", "cls.seq_relationship", "classifier.")):
+            return None
+
+        # GLiNER2.x task heads, carried in the same safetensors as the encoder.
+        # None of these belong in an encoder conversion; Gate 0 (2026-09-26)
+        # measured that classification touches only encoder + classifier, and
+        # the classifier is converted separately in Phase 3a.
+        for prefix in GLINER_TASK_HEAD_PREFIXES:
+            if name.startswith(prefix):
+                head = prefix.rstrip(".")
+                if head not in GLINER_DROPPED:
+                    GLINER_DROPPED.add(head)
+                    logger.info(
+                        "gguf: dropping GLiNER task head %r -- not part of the encoder "
+                        "(the classifier head is converted separately)", head)
+                return None
+
+        return super().filter_tensors((name, gen))

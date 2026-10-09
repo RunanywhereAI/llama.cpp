@@ -1737,6 +1737,11 @@ class TextModel(ModelBase):
         if chkhsh == "8e62295832751ca1e8f92f2226f403dea30dc5165e448b5bfa05af5340c64ec7":
             # ref: https://huggingface.co/BAAI/bge-large-zh-v1.5
             res = "bert-bge-large"
+        if chkhsh == "9ff8c72e7519833cf13eb20da2d87641873339e004dddddde384920fba6431b5":
+            # ref: DeBERTa-v3 / GLiNER2.x -- Metaspace pre-tokenizer with
+            # prepend_scheme "always" is llama.cpp's "default" SPM behaviour.
+            # Unigram model, so the writer also needs token scores.
+            res = "default"
         if chkhsh == "b6dc8df998e1cfbdc4eac8243701a65afe638679230920b50d6f17d81c098166":
             # ref: https://huggingface.co/mosaicml/mpt-7b
             res = "mpt"

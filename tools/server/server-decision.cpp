@@ -132,6 +132,14 @@ void server_decision_context::init(const llama_model * model) {
             throw std::runtime_error("decision model has no mask token");
         }
         n_options_max = 255;
+    } else if (model_type == COMMON_DECISION_TYPE_GLINER) {
+        const auto toks = common_tokenize(vocab, "[L]", false, true);
+        if (toks.size() != 1) {
+            throw std::runtime_error("decision model has no [L] token");
+        }
+        token_marker  = toks[0];
+        text_marker   = "[L]";
+        n_options_max = 255;
     } else {
         throw std::runtime_error("unsupported decision model type: " + type_name);
     }
@@ -700,6 +708,17 @@ void server_decision_context::fill_task(
             throw std::runtime_error("unexpected layout of the decision prompt");
         }
         task.decision.pointer = tokens.size() - 1;
+    }
+    if (type == COMMON_DECISION_TYPE_GLINER) {
+        for (size_t i = 0; i < tokens.size(); i++) {
+            if (tokens[i] == token_marker) {
+                task.decision.markers.push_back(i);
+            }
+        }
+        if (task.decision.markers.size() != question.options.size()) {
+            throw std::runtime_error("unexpected layout of the decision prompt");
+        }
+        task.decision.column = 0;
     }
     task.tokens = server_tokens(tokens, false);
 }

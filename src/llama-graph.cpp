@@ -1540,8 +1540,6 @@ void llm_graph_context::cb(ggml_tensor * cur, const char * name, int il) const {
     }
 }
 
-
-
 ggml_tensor * llm_graph_context::build_cvec(
          ggml_tensor * cur,
                  int   il) const {
@@ -2838,6 +2836,35 @@ ggml_tensor * llm_graph_context::build_attn_mha(
         }
 
         if (kq_b) {
+            // TEMP DIAGNOSTIC: relative term vs content term magnitude.
+            if (getenv("DEBERTA_DUMP_KQ")) {
+                ggml_build_forward_expand(gf, kq);
+                ggml_build_forward_expand(gf, kq_b);
+                // sched is already a ggml_backend_sched_t* in this context
+                const float * kq_d  = (const float *) kq->data;
+                const float * kqb_d = (const float *) kq_b->data;
+                auto stat = [](const float * d, size_t n) {
+                    float lo = 1e30f, hi = -1e30f;
+                    double sum = 0.0;
+                    for (size_t i = 0; i < n; ++i) {
+                        const float v = d[i];
+                        if (!std::isfinite(v)) { return std::make_tuple(0.0f, 0.0f, 0.0f); }
+                        lo = std::min(lo, v); hi = std::max(hi, v); sum += v;
+                    }
+                    return std::make_tuple(lo, hi, (float)(sum / (double) n));
+                };
+                const size_t nkq = ggml_nelements(kq);
+                const size_t nkb = ggml_nelements(kq_b);
+                auto a = stat(kq_d, nkq);
+                auto b = stat(kqb_d, nkb);
+                fprintf(stderr,
+                    "KQSTAT il=%d n_kq=%zu n_kqb=%zu | content [%.4f %.4f] mean %.4f "
+                    "| rel [%.4f %.4f] mean %.4f | kq_b ne=[%lld,%lld,%lld,%lld]\n",
+                    il, nkq, nkb, std::get<0>(a), std::get<1>(a), std::get<2>(a),
+                    std::get<0>(b), std::get<1>(b), std::get<2>(b),
+                    (long long)kq_b->ne[0], (long long)kq_b->ne[1],
+                    (long long)kq_b->ne[2], (long long)kq_b->ne[3]);
+            }
             kq = ggml_add(ctx0, kq, kq_b);
             cb(kq, "kq_plus_kq_b", il);
         }
@@ -4076,4 +4103,46 @@ int32_t llama_relative_position_bucket(llama_pos x, llama_pos y, uint64_t n_buck
     relative_bucket += (relative_position < max_exact ? relative_position : relative_position_if_large);
 
     return relative_bucket;
+}
+
+int32_t llama_deberta_relative_position_bucket(llama_pos rel, uint32_t position_buckets, uint32_t max_position) {
+    // Faithful port of transformers' make_log_bucket_position. See the header
+    // comment for why this is a separate function.
+    const int32_t mid = (int32_t) position_buckets / 2;
+
+    const int32_t a_pos = std::abs(rel) < mid ? (mid - 1) : std::abs(rel);
+    if (a_pos <= mid) {
+        return rel; // exact branch -- no compression inside (-mid, mid]
+    }
+
+    const double lp = std::log((double) a_pos / mid)
+                    / std::log((double) (max_position - 1) / mid)
+                    * (mid - 1);
+    const int32_t log_pos = (int32_t) std::ceil(lp) + mid;
+
+    return rel < 0 ? -log_pos : log_pos;
+}
+
+void llm_graph_input_pos_bucket_deberta::set_input(const llama_ubatch * ubatch) {
+    if (pos_c2p) {
+        GGML_ASSERT(ggml_backend_buffer_is_host(pos_c2p->buffer));
+        GGML_ASSERT(!ubatch->equal_seqs());
+
+        const int64_t  n_tokens = ubatch->n_tokens;
+        const int32_t  att_span = (int32_t) hparams.n_rel_pos_bkts;
+        const int32_t  n_max    = 2 * att_span - 1;
+
+        int32_t * idx = (int32_t *) pos_c2p->data;
+
+        for (int64_t j = 0; j < n_tokens; ++j) {
+            for (int64_t i = 0; i < n_tokens; ++i) {
+                const int32_t b = llama_deberta_relative_position_bucket(
+                        ubatch->pos[i] - ubatch->pos[j],
+                        hparams.n_rel_pos_bkts, hparams.n_rel_pos_max);
+
+                const int32_t c = b + att_span;
+                idx[j*n_tokens + i] = c < 0 ? 0 : (c > n_max ? n_max : c);
+            }
+        }
+    }
 }

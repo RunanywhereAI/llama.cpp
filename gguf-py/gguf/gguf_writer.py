@@ -1025,6 +1025,16 @@ class GGUFWriter:
     def add_relative_attn_buckets_count(self, value: int) -> None:
         self.add_uint32(Keys.Attention.REL_BUCKETS_COUNT.format(arch=self.arch), value)
 
+    def add_relative_attn_pos_max(self, value: int) -> None:
+        """DeBERTa-v2/v3 log-bucket ceiling (`max_position`).
+
+        Distinct from add_relative_attn_buckets_count: that is the T5/ModernBERT
+        bucket count, this is the DeBERTa `max_position` the bucket curve is
+        fitted against. The two share a bucketing *shape* but not constants, so
+        the graph must not conflate them.
+        """
+        self.add_uint32(Keys.Attention.REL_POS_MAX.format(arch=self.arch), value)
+
     def add_sliding_window(self, value: int) -> None:
         self.add_uint32(Keys.Attention.SLIDING_WINDOW.format(arch=self.arch), value)
 

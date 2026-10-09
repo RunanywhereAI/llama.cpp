@@ -290,6 +290,7 @@ void llama_model_saver::add_kv_from_model() {
     add_kv(LLM_KV_ATTENTION_GATE_LORA_RANK,          hparams.n_lora_gate);
     add_kv(LLM_KV_ATTENTION_RELATIVE_BUCKETS_COUNT,  hparams.n_rel_attn_bkts);
     add_kv(LLM_KV_ATTENTION_ROPE_PATTERN,            hparams.rope_pattern, true);
+    add_kv(LLM_KV_ATTENTION_RELATIVE_POS_MAX,        hparams.n_rel_pos_max);
     add_kv(LLM_KV_ATTENTION_SLIDING_WINDOW,          hparams.n_swa);
     if (hparams.swa_type != LLAMA_SWA_TYPE_NONE) {
         // never collapsed to a scalar: the loaders read a scalar as a period

@@ -119,6 +119,7 @@ class TensorNameMap:
             "model.transformer.ln_f",                  # llada
             "final_norm",                              # modern-bert
             "model.norm",                              # cogvlm
+            "encoder.LayerNorm",                       # deberta-v2/v3
         ),
 
         # Rope frequencies
@@ -266,6 +267,7 @@ class TensorNameMap:
             "model.layers.{bid}.self_attn.q_proj_no_perm",               # llama-custom
             "layers.{bid}.attention.wq",                                 # llama-pth
             "encoder.layer.{bid}.attention.self.query",                  # bert
+            "encoder.layer.{bid}.attention.self.query_proj",             # deberta-v2/v3
             "transformer.layer.{bid}.attention.q_lin",                   # distillbert
             "transformer.h.{bid}.attn.q_proj",                           # gpt-j
             "model.layers.layers.{bid}.self_attn.q_proj",                # plamo
@@ -287,6 +289,7 @@ class TensorNameMap:
             "model.layers.{bid}.self_attn.k_proj_no_perm",             # llama-custom
             "layers.{bid}.attention.wk",                               # llama-pth
             "encoder.layer.{bid}.attention.self.key",                  # bert
+            "encoder.layer.{bid}.attention.self.key_proj",             # deberta-v2/v3
             "transformer.layer.{bid}.attention.k_lin",                 # distillbert
             "transformer.h.{bid}.attn.k_proj",                         # gpt-j
             "transformer.h.{bid}.attn.k",                              # refact
@@ -308,6 +311,7 @@ class TensorNameMap:
             "layers.{bid}.self_attn.v_proj",                             # embeddinggemma
             "layers.{bid}.attention.wv",                                 # llama-pth
             "encoder.layer.{bid}.attention.self.value",                  # bert
+            "encoder.layer.{bid}.attention.self.value_proj",             # deberta-v2/v3
             "transformer.layer.{bid}.attention.v_lin",                   # distillbert
             "transformer.h.{bid}.attn.v_proj",                           # gpt-j
             "transformer.h.{bid}.attn.v",                                # refact
@@ -1361,6 +1365,10 @@ class TensorNameMap:
 
         MODEL_TENSOR.ENC_ATTN_REL_B: (
             "encoder.block.{bid}.layer.0.SelfAttention.relative_attention_bias", # t5
+        ),
+
+        MODEL_TENSOR.ENC_ATTN_REL_EMB: (
+            "encoder.rel_embeddings",  # deberta-v2/v3 (model-level, shared by all layers)
         ),
 
         MODEL_TENSOR.ENC_FFN_NORM: (

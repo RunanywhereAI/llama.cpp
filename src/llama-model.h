@@ -665,6 +665,12 @@ struct llama_model {
     struct ggml_tensor * output_b        = nullptr;
     struct ggml_tensor * output_norm_enc = nullptr;
 
+    // DeBERTa-v2/v3 relative-position embedding. MODEL level, not per-block:
+    // HF creates rel_embeddings once on the encoder and reuses it for every
+    // layer. Each layer derives its own pos_q/pos_k from it by applying that
+    // layer's q/k projections.
+    struct ggml_tensor * rel_embd = nullptr;
+
 
     // NVFP4 per-tensor scale2, input_scale for LM head
     struct ggml_tensor * output_s    = nullptr;

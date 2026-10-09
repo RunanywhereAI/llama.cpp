@@ -75,6 +75,14 @@ struct llama_hparams {
     uint32_t n_value_expert      = 0; // MoVA value experts (K2 Horizon)
     uint32_t n_value_expert_used = 0;
 
+    // DeBERTa-v2/v3 disentangled attention. Separate from n_rel_attn_bkts:
+    // that is the T5/ModernBERT bucket count, this is the DeBERTa
+    // position_buckets / max_position pair. The bucketing shapes are similar
+    // but the constants and rounding differ -- do not conflate them.
+    uint32_t n_rel_pos_bkts = 0;
+    uint32_t n_rel_pos_max  = 0;
+    uint32_t n_rel_pos_rows = 0; // 2 * n_rel_pos_bkts
+
     // TODO: this needs to be reworked
     int32_t  n_layer_kv_from_start = -1; // if non-negative, the first n_layer_kv_from_start layers have KV cache
 

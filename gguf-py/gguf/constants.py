@@ -201,6 +201,7 @@ class Keys:
         VALUE_RESIDUAL_MIX_LORA_RANK = "{arch}.attention.value_residual_mix_lora_rank"
         GATE_LORA_RANK               = "{arch}.attention.gate_lora_rank"
         REL_BUCKETS_COUNT            = "{arch}.attention.relative_buckets_count"
+        REL_POS_MAX                  = "{arch}.attention.relative_pos_max"
         SLIDING_WINDOW               = "{arch}.attention.sliding_window"
         SCALE                        = "{arch}.attention.scale"
         OUTPUT_GROUP_COUNT           = "{arch}.attention.output_group_count"
@@ -529,6 +530,8 @@ class MODEL_ARCH(IntEnum):
     JINA_BERT_V2     = auto()
     JINA_BERT_V3     = auto()
     EUROBERT         = auto()
+    DEBERTA_V2       = auto()
+    DEBERTA_V3       = auto()
     BLOOM            = auto()
     STABLELM         = auto()
     QWEN             = auto()
@@ -887,6 +890,7 @@ class MODEL_TENSOR(IntEnum):
     ENC_ATTN_V           = auto()
     ENC_ATTN_OUT         = auto()
     ENC_ATTN_REL_B       = auto()
+    ENC_ATTN_REL_EMB     = auto()
     ENC_FFN_NORM         = auto()
     ENC_FFN_GATE         = auto()
     ENC_FFN_DOWN         = auto()
@@ -1312,6 +1316,8 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.JINA_BERT_V2:     "jina-bert-v2",
     MODEL_ARCH.JINA_BERT_V3:     "jina-bert-v3",
     MODEL_ARCH.EUROBERT:         "eurobert",
+    MODEL_ARCH.DEBERTA_V2:       "deberta-v2",
+    MODEL_ARCH.DEBERTA_V3:       "deberta-v3",
     MODEL_ARCH.BLOOM:            "bloom",
     MODEL_ARCH.STABLELM:         "stablelm",
     MODEL_ARCH.QWEN:             "qwen",
@@ -1650,7 +1656,8 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.DEC_ATTN_K:                "dec.blk.{bid}.attn_k",
     MODEL_TENSOR.DEC_ATTN_V:                "dec.blk.{bid}.attn_v",
     MODEL_TENSOR.DEC_ATTN_OUT:              "dec.blk.{bid}.attn_o",
-    MODEL_TENSOR.DEC_ATTN_REL_B:            "dec.blk.{bid}.attn_rel_b",
+        MODEL_TENSOR.ENC_ATTN_REL_B:            "enc.blk.{bid}.attn_rel_b",
+    MODEL_TENSOR.ENC_ATTN_REL_EMB:          "enc.attn_rel_emb",
     MODEL_TENSOR.DEC_CROSS_ATTN_NORM:       "dec.blk.{bid}.cross_attn_norm",
     MODEL_TENSOR.DEC_CROSS_ATTN_NORM_KV:    "dec.blk.{bid}.cross_attn_norm_kv",
     MODEL_TENSOR.DEC_CROSS_ATTN_Q:          "dec.blk.{bid}.cross_attn_q",
@@ -3322,7 +3329,7 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_DOWN,
         MODEL_TENSOR.FFN_UP,
     ],
-    MODEL_ARCH.GEMMA: [
+        MODEL_ARCH.EUROBERT: [
         MODEL_TENSOR.TOKEN_EMBD,
         MODEL_TENSOR.OUTPUT_NORM,
         MODEL_TENSOR.ATTN_NORM,
@@ -3331,10 +3338,42 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.ATTN_K,
         MODEL_TENSOR.ATTN_V,
         MODEL_TENSOR.ATTN_OUT,
-        MODEL_TENSOR.FFN_GATE,
-        MODEL_TENSOR.FFN_DOWN,
-        MODEL_TENSOR.FFN_UP,
         MODEL_TENSOR.FFN_NORM,
+        MODEL_TENSOR.FFN_GATE,
+        MODEL_TENSOR.FFN_UP,
+        MODEL_TENSOR.FFN_DOWN,
+    ],
+    # DeBERTa-v2/v3: BERT-like block layout, but attention is disentangled
+    # (content-to-position + position-to-content) and consumes ONE model-level
+    # relative-position embedding shared by every layer -- not a per-block bias
+    # like T5's DEC_ATTN_REL_B. `enc.attn_rel_emb` is therefore unblocked.
+    MODEL_ARCH.DEBERTA_V2: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.TOKEN_EMBD_NORM,
+        MODEL_TENSOR.OUTPUT_NORM,
+        MODEL_TENSOR.ATTN_Q,
+        MODEL_TENSOR.ATTN_K,
+        MODEL_TENSOR.ATTN_V,
+        MODEL_TENSOR.ATTN_OUT,
+        MODEL_TENSOR.ATTN_OUT_NORM,
+        MODEL_TENSOR.FFN_UP,
+        MODEL_TENSOR.FFN_DOWN,
+        MODEL_TENSOR.LAYER_OUT_NORM,
+        MODEL_TENSOR.ENC_ATTN_REL_EMB,
+    ],
+    MODEL_ARCH.DEBERTA_V3: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.TOKEN_EMBD_NORM,
+        MODEL_TENSOR.OUTPUT_NORM,
+        MODEL_TENSOR.ATTN_Q,
+        MODEL_TENSOR.ATTN_K,
+        MODEL_TENSOR.ATTN_V,
+        MODEL_TENSOR.ATTN_OUT,
+        MODEL_TENSOR.ATTN_OUT_NORM,
+        MODEL_TENSOR.FFN_UP,
+        MODEL_TENSOR.FFN_DOWN,
+        MODEL_TENSOR.LAYER_OUT_NORM,
+        MODEL_TENSOR.ENC_ATTN_REL_EMB,
     ],
     MODEL_ARCH.GEMMA2: [
         MODEL_TENSOR.TOKEN_EMBD,
@@ -6078,6 +6117,7 @@ class DecisionType:
     PPLX_DECIDER = "pplx-decider"  # same as openjev, label codes of 1 or 2 letters
     LFM2_D1 = "lfm2-d1"  # same as openjev, the labels depend on the question type
     LFM2_D1_OMNI = "lfm2-d1-omni"  # same head as laya on a bidirectional LFM2 trunk, other prompt layout
+    GLINER = "gliner"  # ReLU MLP on the hidden state of one [L] marker per option
 
 
 class VisionProjectorType:
@@ -6213,6 +6253,7 @@ KEY_ATTENTION_HEAD_COUNT_KV     = Keys.Attention.HEAD_COUNT_KV
 KEY_ATTENTION_MAX_ALIBI_BIAS    = Keys.Attention.MAX_ALIBI_BIAS
 KEY_ATTENTION_CLAMP_KQV         = Keys.Attention.CLAMP_KQV
 KEY_ATTENTION_LAYERNORM_EPS     = Keys.Attention.LAYERNORM_EPS
+KEY_ATTENTION_REL_POS_MAX       = Keys.Attention.REL_POS_MAX
 KEY_ATTENTION_LAYERNORM_RMS_EPS = Keys.Attention.LAYERNORM_RMS_EPS
 
 # RoPE

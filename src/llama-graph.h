@@ -207,6 +207,25 @@ public:
     const llama_hparams hparams;
 };
 
+// DeBERTa disentangled attention index grid: c2p = clamp(bucket + att_span),
+// I32 [n_kv, n_tokens], filled on the host like llm_graph_input_pos_bucket.
+//
+// One grid serves BOTH the c2p and p2c terms. The p2c term is contracted
+// against the KEY axis, so it needs a differently shaped broadcast of x, but
+// not a different index: in the reference the gather indexes a key-major tensor
+// with a query-major array, so its negation and transpose cancel.
+class llm_graph_input_pos_bucket_deberta : public llm_graph_input_i {
+public:
+    llm_graph_input_pos_bucket_deberta(const llama_hparams & hparams) : hparams(hparams) {}
+    virtual ~llm_graph_input_pos_bucket_deberta() = default;
+
+    void set_input(const llama_ubatch * ubatch) override;
+
+    ggml_tensor * pos_c2p = nullptr; // I32 [n_kv, n_tokens]
+
+    const llama_hparams hparams;
+};
+
 class llm_graph_input_pos_bucket_kv : public llm_graph_input_i {
 public:
     llm_graph_input_pos_bucket_kv(
@@ -1229,6 +1248,7 @@ struct llm_graph_context {
 
     llm_graph_input_attn_no_cache * build_attn_inp_no_cache() const;
 
+
     ggml_tensor * build_attn(
             llm_graph_input_attn_no_cache * inp,
             ggml_tensor * wo,
@@ -1426,3 +1446,17 @@ struct llm_graph_context {
 
 // TODO: better name
 int32_t llama_relative_position_bucket(llama_pos x, llama_pos y, uint64_t n_buckets, bool bidirectional);
+
+// DeBERTa-v2/v3 relative-position bucket for a single signed distance.
+//
+// Deliberately NOT llama_relative_position_bucket(): the two share a
+// bucketing *shape* (exact for small distances, log beyond) but not
+// constants or rounding -- T5 clamps at max_distance=128 and floors,
+// DeBERTa fits against max_position and ceils. Verified cell-for-cell
+// against transformers 5.17.0 make_log_bucket_position.
+//
+//   |rel| <= position_buckets/2  ->  rel                  (exact)
+//   |rel| >  position_buckets/2  ->  +/- log-compressed    (in [129, 255])
+//
+// Returns a *signed* bucket; the caller adds att_span to make it an index.
+int32_t llama_deberta_relative_position_bucket(llama_pos rel, uint32_t position_buckets, uint32_t max_position);
