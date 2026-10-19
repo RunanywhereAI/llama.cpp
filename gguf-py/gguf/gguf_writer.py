@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -1370,6 +1371,16 @@ class GGUFWriter:
 
     def add_decision_temperature(self, name: str, value: float) -> None:
         self.add_float32(Keys.Decision.TEMPERATURE.format(arch=self.arch, name=name), value)
+
+    def add_decision_marker(self, value: str) -> None:
+        self.add_string(Keys.Decision.MARKER.format(arch=self.arch), value)
+
+    # JSON string arrays: llama.cpp leaves array keys out of the model metadata it exposes
+    def add_decision_codes(self, values: Sequence[str]) -> None:
+        self.add_string(Keys.Decision.CODES.format(arch=self.arch), json.dumps(list(values), ensure_ascii=False))
+
+    def add_decision_escapes(self, values: Sequence[str]) -> None:
+        self.add_string(Keys.Decision.ESCAPES.format(arch=self.arch), json.dumps(list(values), ensure_ascii=False))
 
     # for vision models
 
