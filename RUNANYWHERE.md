@@ -1,5 +1,7 @@
 # RunAnywhere llama.cpp maintenance notes
 
+Branches, pull requests, upstream syncs and releases follow [repo-action.md](repo-action.md).
+
 This is a direct fork of `ggml-org/llama.cpp`. The RunAnywhere integration
 branch carries the DeepGrove Maple model architecture and ternary expert graph
 from `deepgrove-ai/llama.cpp`; it does not wholesale-track that fork.
