@@ -332,6 +332,9 @@ class Keys:
         HEAD_COUNT         = "{arch}.decision.head_count"
         MAX_HEAD_TOKENS    = "{arch}.decision.max_head_tokens"
         TEMPERATURE        = "{arch}.decision.temperature.{name}"  # name: "<type>" or "<type>.<n_opt bucket>"
+        MARKER             = "{arch}.decision.marker"
+        CODES              = "{arch}.decision.codes"
+        ESCAPES            = "{arch}.decision.escapes"
 
     class Tokenizer:
         MODEL                = "tokenizer.ggml.model"
@@ -6115,6 +6118,7 @@ class DecisionType:
     NIMBLE  = "nimble"   # same as openjev, the prompt lists all the questions of the request
     CLEF    = "clef"     # joint head over all questions, one score per option
     PPLX_DECIDER = "pplx-decider"  # same as openjev, label codes of 1 or 2 letters
+    PPLX_DECIDER_JOINT = "pplx-decider-joint"  # LM head logits at a marker token after each question
     LFM2_D1 = "lfm2-d1"  # same as openjev, the labels depend on the question type
     LFM2_D1_OMNI = "lfm2-d1-omni"  # same head as laya on a bidirectional LFM2 trunk, other prompt layout
     GLINER = "gliner"  # ReLU MLP on the hidden state of one [L] marker per option
