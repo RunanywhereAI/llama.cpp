@@ -1529,7 +1529,7 @@ class TextModel(ModelBase):
             self.gguf_writer.add_expert_group_used_count(n_group_used)
             logger.info(f"gguf: expert groups used count = {n_group_used}")
 
-        if (score_func := self.find_hparam(["score_function", "scoring_func", "score_func", "moe_router_activation", "moe_router_activation_func", "expert_selection_fn", "router_score_func"], optional=True)) is not None:
+        if (score_func := self.find_hparam(["score_function", "scoring_func", "score_func", "moe_router_activation", "moe_router_activation_func", "expert_selection_fn", "router_score_func", "router_score_function"], optional=True)) is not None:
             if score_func == "sigmoid":
                 self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
             elif score_func == "softmax":
@@ -1695,6 +1695,9 @@ class TextModel(ModelBase):
         if chkhsh == "1444df51289cfa8063b96f0e62b1125440111bc79a52003ea14b6eac7016fd5f":
             # ref: https://huggingface.co/openbmb/MiniCPM-V-4_6
             res = "qwen35"
+        if chkhsh == "9ff8c72e7519833cf13eb20da2d87641873339e004dddddde384920fba6431b5":
+            # ref: https://huggingface.co/fastino/GLiNER2.5-Decide
+            res = "default"
         if chkhsh == "66b8d4e19ab16c3bfd89bce5d785fb7e0155e8648708a1f42077cb9fe002c273":
             # ref: https://huggingface.co/alvarobartt/grok-2-tokenizer
             res = "grok-2"
@@ -1737,11 +1740,6 @@ class TextModel(ModelBase):
         if chkhsh == "8e62295832751ca1e8f92f2226f403dea30dc5165e448b5bfa05af5340c64ec7":
             # ref: https://huggingface.co/BAAI/bge-large-zh-v1.5
             res = "bert-bge-large"
-        if chkhsh == "9ff8c72e7519833cf13eb20da2d87641873339e004dddddde384920fba6431b5":
-            # ref: DeBERTa-v3 / GLiNER2.x -- Metaspace pre-tokenizer with
-            # prepend_scheme "always" is llama.cpp's "default" SPM behaviour.
-            # Unigram model, so the writer also needs token scores.
-            res = "default"
         if chkhsh == "b6dc8df998e1cfbdc4eac8243701a65afe638679230920b50d6f17d81c098166":
             # ref: https://huggingface.co/mosaicml/mpt-7b
             res = "mpt"
@@ -1766,6 +1764,9 @@ class TextModel(ModelBase):
         if chkhsh == "52df12b4c8d4176e7481aab4b6e8454d1fd0a210a04a574f6d4e067d10e23c3e":
             # ref: https://huggingface.co/CohereLabs/North-Mini-Code-1.0
             res = "cohere2moe"
+        if chkhsh == "d5420e601e979078c670bc503d9ac411c311fa76b76a76267c31e0d6ba816637":
+            # ref: https://huggingface.co/RecursiveSI/flint-preview
+            res = "flint"
         if chkhsh == "e636dc30a262dcc0d8c323492e32ae2b70728f4df7dfe9737d9f920a282b8aea":
             # ref: https://huggingface.co/Qwen/Qwen1.5-7B
             res = "qwen2"
