@@ -111,6 +111,11 @@ struct llm_build_lfm_base : public llm_graph_context {
                                       ggml_tensor * cur,
                                       int il);
 
+    // no recurrent state (decision graphs): causal over the ubatch from a zero state
+    ggml_tensor * build_lfm_shortconv(const llama_model & model,
+                                      ggml_tensor * cur,
+                                      int il);
+
     ggml_tensor * build_lfm_dense_ffn(const llama_model & model,
                                       ggml_tensor * cur,
                                       int il);
@@ -695,19 +700,6 @@ struct llama_model_vllm_decision2 : public llama_model_qwen3 {
 
 struct llama_model_qwen3moe : public llama_model_base {
     llama_model_qwen3moe(const struct llama_model_params & params) : llama_model_base(params) {}
-    void load_arch_hparams(llama_model_loader & ml) override;
-    void load_arch_tensors(llama_model_loader & ml) override;
-
-    struct graph : public llm_graph_context {
-        graph(const llama_model & model, const llm_graph_params & params);
-    };
-
-    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
-};
-
-
-struct llama_model_flint : public llama_model_base {
-    llama_model_flint(const struct llama_model_params & params) : llama_model_base(params) {}
     void load_arch_hparams(llama_model_loader & ml) override;
     void load_arch_tensors(llama_model_loader & ml) override;
 
@@ -2464,6 +2456,8 @@ struct llama_model_lfm3 : public llama_model_base {
     void load_arch_hparams(llama_model_loader & ml) override;
     void load_arch_tensors(llama_model_loader & ml) override;
 
+    // decision: d1, the prompt read in one batch, no memory
+    template <bool decision>
     struct graph : public llm_build_lfm_base {
         graph(const llama_model & model, const llm_graph_params & params);
     };

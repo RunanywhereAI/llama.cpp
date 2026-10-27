@@ -194,6 +194,10 @@ if (NOT WIN32 OR NOT BUILD_SHARED_LIBS)
     llama_build_and_test(test-server-component.cpp  LABEL behavior)
     target_include_directories(test-server-component PRIVATE ${PROJECT_SOURCE_DIR}/tools/server)
     target_link_libraries(test-server-component PRIVATE server-context)
+    # real d1-2B GGUF, not part of ctest: the weights are not in the tree
+    llama_build(test-lfm3-d1.cpp)
+    target_include_directories(test-lfm3-d1 PRIVATE ${PROJECT_SOURCE_DIR}/tools/server ${PROJECT_SOURCE_DIR}/tools/mtmd)
+    target_link_libraries(test-lfm3-d1 PRIVATE server-context)
     llama_build_and_test(test-json-schema-to-grammar.cpp  LABEL behavior)
 
     if (NOT GGML_BACKEND_DL)
